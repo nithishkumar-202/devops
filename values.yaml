@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    version: v1
+    app: {{ .Values.ocpinfo.service }}
+    tier: {{ .Values.ocpinfo.tier }}
+  name: {{ .Values.ocpinfo.service }}
+  namespace: {{ .Values.ocpinfo.namespace }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+      matchLabels:
+        name: {{ .Values.ocpinfo.service }}
+        version: v1
+        app: {{ .Values.ocpinfo.service }}
+        tier: {{ .Values.ocpinfo.tier }}
+  strategy:
+   type: RollingUpdate
+   rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        version: v1
+        app: {{ .Values.ocpinfo.service }}
+        name: {{ .Values.ocpinfo.service }}
+        tier: {{ .Values.ocpinfo.tier }}
+    spec:
+      # serviceAccountName: {{ .Values.ocpinfo.serviceAccount }}
+      initContainers:
+      - name: busybox
+        image: {{ .Values.image.imageTagBB }}
+        securityContext:
+          runAsNonRoot: false
+        command: ['sh', '-c']
+        args: [' id && chown -R 1000:1000 /mnt/* && chmod -R 777 /mnt/* ']
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 50m
+          limits:
+            memory: 128Mi
+            cpu: 100m        
+        env:
+          - name: Release_Pipeline_Number
+            value: "Jenkins_Build_Number"
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+        volumeMounts:
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /mnt/1
+          subPath: {{ .Values.config.path }}/EJB/Config
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /mnt/2
+          subPath: {{ .Values.config.path }}/EJB/configuration
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /mnt/3
+          subPath: {{ .Values.config.path }}/SystemReports
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /mnt/4
+          subPathExpr: {{ .Values.config.path }}/ProductLogs/Server_Logs/$(POD_NAME)
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /mnt/5
+          subPathExpr: {{ .Values.config.path }}/ProductLogs/NGLogs/$(POD_NAME)
+      containers:
+      - name: {{ .Values.ocpinfo.service }}
+        image: {{ .Values.image.imageName }}:{{ .Values.image.imageTag }}
+        imagePullPolicy: Always
+        securityContext:
+          runAsNonRoot: true
+        resources:
+          requests:
+            memory: 1072Mi
+            cpu: 700m
+          limits:
+            memory: 3072Mi
+            cpu: 1000m
+        volumeMounts:
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /home/jboss-eap-8.0/bin
+          subPath: {{ .Values.config.path }}/EJB/Config
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /home/jboss-eap-8.0/standalone/configuration
+          subPath: {{ .Values.config.path }}/EJB/configuration
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /home/jboss-eap-8.0/bin/SystemReports
+          subPath: {{ .Values.config.path }}/SystemReports
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /home/jboss-eap-8.0/standalone/log
+          subPathExpr: {{ .Values.config.path }}/ProductLogs/Server_Logs/$(POD_NAME)
+        - name: {{ .Values.pvcinfo.pvcName }}
+          mountPath: /home/jboss-eap-8.0/bin/NGLogs
+          subPathExpr: {{ .Values.config.path }}/ProductLogs/NGLogs/$(POD_NAME)
+        ports:
+         - name: http
+           containerPort: 8080
+         - name: http1
+           containerPort: 9990
+        readinessProbe:
+          exec:
+            command:
+            - cat
+            - /home/jboss-eap-8.0/standalone/deployments/wfs_ejb.jar.deployed
+          initialDelaySeconds: 50
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 300
+          failureThreshold: 5
+          periodSeconds: 10
+        envFrom:
+          - secretRef:
+              name: dlp-db-secret          
+        env:
+          - name: Release_Pipeline_Number
+            value: "Jenkins_Build_Number"
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: TZ
+            value: Asia/Kolkata
+          - name: JAVA_OPTS
+            value: {{ .Values.metadata.value }}
+      imagePullSecrets:
+        - name: {{ .Values.secrets.imagesecret }}
+      volumes:
+      - name: {{ .Values.pvcinfo.pvcName }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.pvcinfo.pvcName }}
