@@ -1,0 +1,20 @@
+ARG BASE_URL
+FROM ${BASE_URL}/frontend:version_v2
+LABEL maintainer="Software Technologies Limited"
+
+
+# Copying custom build component dependencies
+ARG SUB_PATH
+COPY --chown=docker:newgen --chmod=0755 ${SUB_PATH}/Integration/artifacts/main /home/$JBOSS_VERSION/modules/omnidocs_library/main
+COPY --chown=docker:newgen --chmod=0755 ${SUB_PATH}/Integration/artifacts/standalone/deployments /home/$JBOSS_VERSION/standalone/deployments
+COPY --chown=docker:newgen --chmod=0755 ${SUB_PATH}/Integration/artifacts/bin /home/$JBOSS_VERSION/bin
+
+
+EXPOSE 8080
+
+#Switch to user: docker
+USER 1000
+
+WORKDIR /home/$JBOSS_VERSION
+CMD /bin/run.sh 
+
