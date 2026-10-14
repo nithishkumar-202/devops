@@ -1,0 +1,52 @@
+# Stage 1: Base Image
+FROM quay-quay-enterprise.apps.dchub.tngb.co.in/ngs-nitish/frontend:version_1 as baseimage
+LABEL maintainer="Software Technologies Limited" 
+
+# Stage 2: Build the custom JRE
+FROM alpine:latest as builder
+# update OS
+RUN apk update && \
+apk upgrade && \
+apk add openjdk17
+
+RUN apk update && apk add --no-cache binutils && \
+    jlink --module-path $JAVA_HOME/jmods \
+          --add-modules java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.se,java.security.jgss,java.security.sasl,java.smartcardio,java.sql,java.sql.rowset,java.transaction.xa,java.xml,java.xml.crypto,jdk.accessibility,jdk.attach,jdk.charsets,jdk.compiler,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.dynalink,jdk.editpad,jdk.hotspot.agent,jdk.httpserver,jdk.incubator.foreign,jdk.incubator.vector,jdk.internal.ed,jdk.internal.jvmstat,jdk.internal.le,jdk.internal.opt,jdk.internal.vm.ci,jdk.internal.vm.compiler,jdk.internal.vm.compiler.management,jdk.jartool,jdk.javadoc,jdk.jcmd,jdk.jconsole,jdk.jdeps,jdk.jdi,jdk.jdwp.agent,jdk.jfr,jdk.jlink,jdk.jshell,jdk.jsobject,jdk.jstatd,jdk.localedata,jdk.management,jdk.management.agent,jdk.management.jfr,jdk.naming.dns,jdk.naming.rmi,jdk.net,jdk.nio.mapmode,jdk.sctp,jdk.security.auth,jdk.security.jgss,jdk.unsupported,jdk.unsupported.desktop,jdk.xml.dom,jdk.zipfs \
+          --output /custom-jdk --strip-debug --no-header-files --no-man-pages --compress=2 --include-locales en
+
+# Stage 3: Update HotFix 17 Binaries
+
+FROM alpine:latest
+LABEL maintainer="Software Technologies Limited"
+
+RUN apk update && \
+apk upgrade && \
+apk add --no-cache ttf-dejavu ffmpeg ffmpeg-libs libc6-compat && \
+apk add --no-cache bash netcat-openbsd tzdata && \
+addgroup -g 1000 -S admin && \
+adduser -u 1000 -S docker -G admin && \
+rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
+
+# Copy the custom JRE from the builder stage
+COPY --from=builder /custom-jdk /opt/custom-jdk
+
+RUN chown -R 1000:1000 /opt/custom-jdk && chmod -R 0755 /opt/custom-jdk
+
+# Set the PATH environment variable to use the custom JRE
+ENV PATH="/opt/custom-jdk/bin:${PATH}"
+ENV JAVA_HOME="/opt/custom-jdk"
+
+COPY --chown=docker:admin --chmod=0755 --from=baseimage /bin/run.sh /bin/
+COPY --chown=docker:admin --chmod=0755 --from=baseimage /bin/restartjws.sh /bin/
+COPY --chown=docker:admin --chmod=0755 --from=baseimage /home /home
+RUN touch /.dockerenv && chown docker:admin /.dockerenv # Don't remove this file (used for secret manager in AWS)
+
+EXPOSE 8080
+ENV CATALINA_HOME=/home/jws-6.1/tomcat
+ENV JWS_VERSION=jws-6.1
+#Switch to user: docker
+USER 1000
+
+WORKDIR /home/$JWS_VERSION
+
+CMD /bin/run.sh
